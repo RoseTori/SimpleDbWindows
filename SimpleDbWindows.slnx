@@ -3,5 +3,5 @@
     <Platform Name="x64" />
     <Platform Name="x86" />
   </Configurations>
-  <Project Path="SimpleDbWindows/SimpleDbWindows.vcxproj" />
+  <Project Path="SimpleDbWindows/SimpleDbWindows.vcxproj" Id="ad93e70a-b59b-4b4a-b03b-4c5f8fb25034" />
 </Solution>
