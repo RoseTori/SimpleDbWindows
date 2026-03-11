@@ -22,8 +22,8 @@ typedef intptr_t ssize_t;
 
 struct Row {
 	uint32_t id;
-	char username[COLUMN_USERNAME_SIZE];
-	char email[COLUMN_EMAIL_SIZE];
+	char username[COLUMN_USERNAME_SIZE + 1];
+	char email[COLUMN_EMAIL_SIZE + 1];
 
 };
 
@@ -144,7 +144,9 @@ void print_row(Row* row) {
 
 enum PrepareResult {
 	PREPARE_SUCCESS,
+	PREPARE_NEGATIVE_ID,
 	PREPARE_UNRECOGNIZED_STATEMENT,
+	PREPARE_STRING_TOO_LONG,
 	PREPARE_SYNTAX_ERROR
 };
 
@@ -166,33 +168,48 @@ MetaCommanResult do_meta_command(InputBuffer* input_buffer, Table* table) {
 	}
 }
 
-PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement) {
-	if (strncmp(input_buffer->buffer, "insert", 6) == 0) {
-		statement->type = STATEMENT_INSERT;
-		std::stringstream ss (input_buffer->buffer);
-		std::string keyword;
-		int id;
-		std::string username;
-		std::string email;
+PrepareResult prepare_insert(InputBuffer* input_buffer, Statement* statement) {
+	statement->type = STATEMENT_INSERT;
+	std::stringstream ss(input_buffer->buffer);
 
-		if (!(ss >> keyword >> id >> username >> email)) {
-			return PREPARE_SYNTAX_ERROR;
-		}
+	std::string keyword; 
+	int id;
+	std::string username, email;
 
-		statement->row_to_insert.id = id;
-		
-		strncpy(statement->row_to_insert.username, username.c_str(), COLUMN_USERNAME_SIZE);
-		strncpy(statement->row_to_insert.email, email.c_str(), COLUMN_EMAIL_SIZE);
-
-		return PREPARE_SUCCESS;
+	if (!(ss >> keyword >> id >> username >> email)) {
+		return PREPARE_SYNTAX_ERROR;
 	}
-	if (strcmp(input_buffer->buffer, "select") == 0) {
+
+	if (id < 0) {
+		return PREPARE_NEGATIVE_ID;
+	}
+
+	if (username.length() > COLUMN_USERNAME_SIZE || email.length() > COLUMN_EMAIL_SIZE) {
+		return PREPARE_STRING_TOO_LONG;
+	}
+
+	statement->row_to_insert.id = id;
+
+	strncpy(statement->row_to_insert.username, username.c_str(), COLUMN_USERNAME_SIZE);
+	strncpy(statement->row_to_insert.email, email.c_str(), COLUMN_EMAIL_SIZE);
+
+	return PREPARE_SUCCESS;
+}
+
+PrepareResult prepare_statement(InputBuffer* input_buffer, Statement* statement) {
+	std::string input(input_buffer->buffer);
+
+	if (input.substr(0, 6) == "insert") {
+		return prepare_insert(input_buffer, statement);
+	}
+
+	if (input == "select") {
 		statement->type = STATEMENT_SELECT;
 		return PREPARE_SUCCESS;
 	}
-	return PREPARE_UNRECOGNIZED_STATEMENT;
 
- }
+	return PREPARE_UNRECOGNIZED_STATEMENT;
+}
 
 ExecuteResult execute_insert(Statement* statement, Table* table) {
 	if (table->num_rows >= TABLE_MAX_ROWS) {
@@ -256,15 +273,23 @@ int main(int argc, char* argv[]) {
 		}
 
 		Statement statement;
-		switch (prepare_statement(input_buffer, &statement)) {
-			case (PREPARE_SUCCESS):
-				break;
-			case (PREPARE_SYNTAX_ERROR):
-				std::cout << "Syntax error. Could not parse statement" << std::endl;
-				continue;
-			case (PREPARE_UNRECOGNIZED_STATEMENT):
-				std::cout << "Unrecognized keyword at start of: " << input_buffer->buffer << "\n";
-				continue;
+		PrepareResult prepare_result = prepare_statement(input_buffer, &statement);
+
+		switch (prepare_result) {
+		case (PREPARE_SUCCESS):
+			break;
+		case (PREPARE_SYNTAX_ERROR):
+			std::cout << "Syntax error. Could not parse statement" << std::endl;
+			continue;
+		case (PREPARE_UNRECOGNIZED_STATEMENT):
+			std::cout << "Unrecognized keyword at start of: " << input_buffer->buffer << "\n";
+			continue;
+		case (PREPARE_NEGATIVE_ID):
+			std::cout << "ID must be positive" << std::endl;
+			continue;
+		case (PREPARE_STRING_TOO_LONG):
+			std::cout << "String too long" << std::endl;
+			continue;
 		}
 
 		switch (execute_statement(&statement, table)) {
